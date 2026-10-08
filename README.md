@@ -5,7 +5,7 @@ Winlator 通用 Wine/Proton 源码编译仓库。
 ## 特性
 
 - **双架构**：x86_64 (glibc/mingw) + arm64ec (bionic/NDK+llvm-mingw)
-- **原生汉化**：gettext NLS 全语言（51种）嵌入 PE 资源，非二进制硬改
+- **原生汉化**：gettext NLS 全语言嵌入 PE 资源，非二进制硬改
 - **双格式输出**：`.wcp` (ludashi/bionic) + `.whp` (winlator-pulse)
 - **prefixPack 融合生成**：wineboot 真实初始化 + 中文注册表配置 + 中文字体注入
 - **闭源包二次加工**：解包已有 wcp/whp → 替换汉化资源 → 重打包
