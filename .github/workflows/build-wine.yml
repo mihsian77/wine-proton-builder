@@ -8,26 +8,59 @@ on:
         required: true
         default: 'mihsian77/wine-10.17-winlator'
         type: string
-      wine_ref:
-        description: '源码 ref（分支/tag/commit）'
+      refs:
+        description: '要构建的 ref，逗号分隔；可填分支/tag/commit，多个版本会并行编译'
         required: true
         default: 'main'
         type: string
       wine_version:
-        description: '产物版本号，例如 10.17'
-        required: true
+        description: 'ref 不含版本号时（如 main/SHA）使用的版本名'
+        required: false
         default: '10.17'
         type: string
       jobs:
-        description: '编译线程数'
+        description: '每个构建的编译线程数'
         required: false
         default: '2'
         type: string
 
+permissions:
+  contents: write
+  actions: read
+
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - name: Resolve refs to build matrix
+        id: m
+        env:
+          REFS: ${{ inputs.refs || 'main' }}
+          FALLBACK_VERSION: ${{ inputs.wine_version || '10.17' }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, re
+          refs = [r.strip() for r in os.environ["REFS"].split(",") if r.strip()]
+          fallback = os.environ.get("FALLBACK_VERSION") or "10.17"
+          items = []
+          for ref in refs:
+              name = re.sub(r'^(wine-|v)', '', ref)
+              # main/master/纯 SHA 不携带版本信息，用 fallback
+              if not re.match(r'^\d+\.\d+', name) or len(ref) >= 20:
+                  name = fallback
+              items.append({"ref": ref, "ver": name})
+          print("matrix=" + json.dumps({"include": items}))
+          PY
+
   build:
+    needs: prepare
     runs-on: ubuntu-22.04
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Checkout builder
@@ -39,10 +72,10 @@ jobs:
           git init src
           cd src
           git remote add origin "https://github.com/${{ inputs.wine_repo }}.git"
-          git fetch --depth 1 origin "${{ inputs.wine_ref }}"
+          git fetch --depth 1 origin "${{ matrix.ref }}"
           git checkout FETCH_HEAD
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "source: $(git rev-parse --short HEAD) $(git log -1 --format=%s)"
+          echo "ref=${{ matrix.ref }} sha=$(git rev-parse --short HEAD)"
 
       - name: Free disk space
         run: |
@@ -125,37 +158,37 @@ jobs:
         run: |
           mkdir -p dist
           bash scripts/package-wcp.sh /tmp/wine_build dist/prefixPack.tar \
-            "dist/wine-${{ inputs.wine_version }}-amd64.wcp" "${{ inputs.wine_version }}" amd64
+            "dist/wine-${{ matrix.ver }}-amd64.wcp" "${{ matrix.ver }}" amd64
           bash scripts/package-whp.sh /tmp/wine_build dist/prefixPack.tar \
-            "dist/wine-${{ inputs.wine_version }}.whp" "${{ inputs.wine_version }}"
+            "dist/wine-${{ matrix.ver }}.whp" "${{ matrix.ver }}"
 
       - name: Verify packages
         run: |
           set -e
           ls -lh dist/
           echo "=== whp ==="
-          magic=$(xxd -l 4 -p dist/wine-${{ inputs.wine_version }}.whp)
+          magic=$(xxd -l 4 -p dist/wine-${{ matrix.ver }}.whp)
           echo "  magic: ${magic}"
           [ "${magic}" = "28b52ffd" ] || { echo "ERROR: whp 外层不是 zstd"; exit 1; }
-          zstd -dc dist/wine-${{ inputs.wine_version }}.whp | tar -tf - > /tmp/whp.lst
-          grep -q "^wine-${{ inputs.wine_version }}-/bin/" /tmp/whp.lst || { echo "ERROR: whp 缺 wine 目录"; exit 1; }
+          zstd -dc dist/wine-${{ matrix.ver }}.whp | tar -tf - > /tmp/whp.lst
+          grep -q "^wine-${{ matrix.ver }}-/bin/" /tmp/whp.lst || { echo "ERROR: whp 缺 wine 目录"; exit 1; }
           grep -q "^container-pattern-" /tmp/whp.lst || { echo "ERROR: whp 缺 container-pattern"; exit 1; }
-          cp_size=$(zstd -dc dist/wine-${{ inputs.wine_version }}.whp | tar -xOf - "container-pattern-${{ inputs.wine_version }}.tzst" | wc -c)
+          cp_size=$(zstd -dc dist/wine-${{ matrix.ver }}.whp | tar -xOf - "container-pattern-${{ matrix.ver }}.tzst" | wc -c)
           echo "  container-pattern: $((cp_size/1024/1024))MB"
           [ "${cp_size}" -gt 10485760 ] || { echo "ERROR: container-pattern 过小"; exit 1; }
 
           echo "=== wcp ==="
-          zstd -dc dist/wine-${{ inputs.wine_version }}-amd64.wcp | tar -tf - > /tmp/wcp.lst
+          zstd -dc dist/wine-${{ matrix.ver }}-amd64.wcp | tar -tf - > /tmp/wcp.lst
           grep -q "prefixPack.txz" /tmp/wcp.lst || { echo "ERROR: wcp 缺 prefixPack.txz"; exit 1; }
           grep -q "profile.json" /tmp/wcp.lst || { echo "ERROR: wcp 缺 profile.json"; exit 1; }
-          txz_size=$(zstd -dc dist/wine-${{ inputs.wine_version }}-amd64.wcp | tar -xOf - prefixPack.txz | wc -c)
+          txz_size=$(zstd -dc dist/wine-${{ matrix.ver }}-amd64.wcp | tar -xOf - ./prefixPack.txz | wc -c)
           echo "  prefixPack.txz: $((txz_size/1024/1024))MB"
           [ "${txz_size}" -gt 10485760 ] || { echo "ERROR: prefixPack.txz 过小"; exit 1; }
 
-      - name: Upload artifacts
+      - name: Upload wcp
         uses: actions/upload-artifact@v4
         with:
-          name: Wine-${{ inputs.wine_version }}-x86_64-zh
+          name: Wine-${{ matrix.ver }}-x86_64-zh
           path: dist/*.wcp
           retention-days: 30
           if-no-files-found: error
@@ -163,7 +196,37 @@ jobs:
       - name: Upload whp
         uses: actions/upload-artifact@v4
         with:
-          name: Wine-${{ inputs.wine_version }}-x86_64-zh-whp
+          name: Wine-${{ matrix.ver }}-x86_64-zh-whp
           path: dist/*.whp
           retention-days: 30
           if-no-files-found: error
+
+  record:
+    needs: [prepare, build]
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record built refs
+        env:
+          MATRIX: ${{ needs.prepare.outputs.matrix }}
+          REPO: ${{ inputs.wine_repo }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path("state/built.json")
+          data = json.loads(p.read_text()) if p.exists() else {"refs": {}}
+          for it in json.loads(os.environ["MATRIX"])["include"]:
+              data["refs"][f'{os.environ["REPO"]}@{it["ref"]}'] = it["ver"]
+          p.parent.mkdir(parents=True, exist_ok=True)
+          p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/built.json
+          git diff --cached --quiet || git commit -m "chore: 记录已构建版本"
+          git push || true
