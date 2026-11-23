@@ -10,14 +10,17 @@
 # 注意：早期版本这里用 xz 外层，与 App 实际读取的格式不符，
 # 打出来的包 magic 是 fd377a585a00，会被拒绝。
 #
-# 用法：package-whp.sh <install_prefix> <prefixPack.tar> <输出.whp> <版本>
+# 用法：package-whp.sh <install_prefix> <prefixPack.tar> <输出.whp> <版本> [架构]
+#   除 .whp 外，还会在同目录输出 <identifier>_container_pattern.tzst，
+#   供把组件直接打进 APK assets 的版本使用（命名规则：<wineVersion>_container_pattern.tzst）。
 # ==============================================================================
 set -euo pipefail
 
-INSTALL_PREFIX="${1:?用法: package-whp.sh <install_prefix> <prefixPack.tar> <输出.whp> <版本>}"
+INSTALL_PREFIX="${1:?用法: package-whp.sh <install_prefix> <prefixPack.tar> <输出.whp> <版本> [架构]}"
 PREFIX_TAR="${2:?缺少 prefixPack.tar}"
 OUTPUT="${3:?缺少输出路径}"
 VERSION="${4:-10.17}"
+ARCH="${5:-x86_64}"
 
 # 脚本后面会 cd 到临时目录，输出路径必须先转成绝对路径
 mkdir -p "$(dirname "${OUTPUT}")"
@@ -49,6 +52,9 @@ fi
 
 echo "==> [whp] 打包（外层 zstd）"
 mkdir -p "$(dirname "${OUTPUT}")"
+PATTERN_OUT="$(dirname "${OUTPUT}")/wine-${VERSION}-${ARCH}_container_pattern.tzst"
+cp "${TMP}/container-pattern-${VERSION}.tzst" "${PATTERN_OUT}"
+echo "==> [whp] 独立容器模板: ${PATTERN_OUT} ($(du -h "${PATTERN_OUT}" | cut -f1))"
 cd "${TMP}"
 tar --owner=0 --group=0 -I "zstd -T0 -19" -cf "${OUTPUT}" "wine-${VERSION}-" "container-pattern-${VERSION}.tzst"
 echo "==> [whp] 完成: ${OUTPUT} ($(du -h "${OUTPUT}" | cut -f1))"

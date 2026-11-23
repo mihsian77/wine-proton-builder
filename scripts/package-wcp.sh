@@ -7,7 +7,7 @@
 #   prefixPack.txz: xz -9e
 #   外层: zstd --ultra -22
 #
-# 用法：package-wcp.sh <install_prefix> <prefixPack.tar> <输出.wcp> <版本> <架构>
+# 用法：package-wcp.sh <install_prefix> <prefixPack.tar> <输出.wcp> <版本> <架构，默认 x86_64>
 # ==============================================================================
 set -euo pipefail
 
@@ -15,7 +15,7 @@ INSTALL_PREFIX="${1:?用法: package-wcp.sh <install_prefix> <prefixPack.tar> <�
 PREFIX_TAR="${2:?缺少 prefixPack.tar}"
 OUTPUT="${3:?缺少输出路径}"
 VERSION="${4:-10.17}"
-ARCH="${5:-amd64}"
+ARCH="${5:-x86_64}"
 
 # 脚本后面会 cd 到临时目录，输出路径必须先转成绝对路径
 mkdir -p "$(dirname "${OUTPUT}")"

@@ -158,9 +158,9 @@ jobs:
         run: |
           mkdir -p dist
           bash scripts/package-wcp.sh /tmp/wine_build dist/prefixPack.tar \
-            "dist/wine-${{ matrix.ver }}-amd64.wcp" "${{ matrix.ver }}" amd64
+            "dist/wine-${{ matrix.ver }}-x86_64.wcp" "${{ matrix.ver }}" x86_64
           bash scripts/package-whp.sh /tmp/wine_build dist/prefixPack.tar \
-            "dist/wine-${{ matrix.ver }}.whp" "${{ matrix.ver }}"
+            "dist/wine-${{ matrix.ver }}.whp" "${{ matrix.ver }}" x86_64
 
       - name: Verify packages
         run: |
@@ -177,11 +177,18 @@ jobs:
           echo "  container-pattern: $((cp_size/1024/1024))MB"
           [ "${cp_size}" -gt 10485760 ] || { echo "ERROR: container-pattern 过小"; exit 1; }
 
+          echo "=== 独立容器模板 ==="
+          pat="dist/wine-${{ matrix.ver }}-x86_64_container_pattern.tzst"
+          ls -lh "${pat}"
+          pat_size=$(stat -c %s "${pat}")
+          echo "  pattern: $((pat_size/1024/1024))MB"
+          [ "${pat_size}" -gt 10485760 ] || { echo "ERROR: 独立容器模板过小"; exit 1; }
+
           echo "=== wcp ==="
-          zstd -dc dist/wine-${{ matrix.ver }}-amd64.wcp | tar -tf - > /tmp/wcp.lst
+          zstd -dc dist/wine-${{ matrix.ver }}-x86_64.wcp | tar -tf - > /tmp/wcp.lst
           grep -q "prefixPack.txz" /tmp/wcp.lst || { echo "ERROR: wcp 缺 prefixPack.txz"; exit 1; }
           grep -q "profile.json" /tmp/wcp.lst || { echo "ERROR: wcp 缺 profile.json"; exit 1; }
-          txz_size=$(zstd -dc dist/wine-${{ matrix.ver }}-amd64.wcp | tar -xOf - ./prefixPack.txz | wc -c)
+          txz_size=$(zstd -dc dist/wine-${{ matrix.ver }}-x86_64.wcp | tar -xOf - ./prefixPack.txz | wc -c)
           echo "  prefixPack.txz: $((txz_size/1024/1024))MB"
           [ "${txz_size}" -gt 10485760 ] || { echo "ERROR: prefixPack.txz 过小"; exit 1; }
 
@@ -197,7 +204,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Wine-${{ matrix.ver }}-x86_64-zh-whp
-          path: dist/*.whp
+          path: |
+            dist/*.whp
+            dist/*_container_pattern.tzst
           retention-days: 30
           if-no-files-found: error
 
