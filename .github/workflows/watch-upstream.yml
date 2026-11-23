@@ -1,0 +1,94 @@
+name: Watch Upstream
+
+on:
+  schedule:
+    # 每天 03:17 UTC（北京 11:17）检查一次，只做 API 比对，不跑编译
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      wine_repo:
+        description: '要监控的源码仓库'
+        required: false
+        default: 'mihsian77/wine-10.17-winlator'
+        type: string
+      max_dispatch:
+        description: '单次最多触发的构建数'
+        required: false
+        default: '3'
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout state
+        uses: actions/checkout@v4
+
+      - name: Detect refs not built yet
+        id: d
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ inputs.wine_repo || 'mihsian77/wine-10.17-winlator' }}
+          MAX_DISPATCH: ${{ inputs.max_dispatch || '3' }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, pathlib, subprocess, re, sys
+
+          repo = os.environ["REPO"]
+          state = pathlib.Path("state/built.json")
+          built = set(json.loads(state.read_text())["refs"].keys()) if state.exists() else set()
+
+          def api(path):
+              out = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+              return out.stdout.strip() if out.returncode == 0 else ""
+
+          sha = api(f"repos/{repo}/commits/main")
+          sha = json.loads(sha)["sha"] if sha else ""
+
+          version = ""
+          if sha:
+              b64 = api(f"repos/{repo}/contents/VERSION?ref={sha}")
+              if b64:
+                  content = json.loads(b64).get("content", "")
+                  try:
+                      raw = __import__("base64").b64decode(content).decode("utf-8", "replace")
+                      m = re.search(r"(\d+\.\d+)", raw)
+                      version = m.group(1) if m else ""
+                  except Exception:
+                      pass
+
+          tags = []
+          raw = api(f"repos/{repo}/tags?per_page=20")
+          if raw:
+              tags = [t["name"] for t in json.loads(raw)]
+
+          candidates = ([sha] if sha else []) + tags
+          missing = [c for c in candidates if f"{repo}@{c}" not in built]
+          limit = int(os.environ.get("MAX_DISPATCH") or 3)
+          missing = missing[:limit]
+
+          print("refs=" + ",".join(missing))
+          print("version=" + (version or "10.17"))
+          print(f"# built={len(built)} missing={len(missing)}", file=sys.stderr)
+          PY
+
+      - name: Dispatch build runs
+        if: steps.d.outputs.refs != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ inputs.wine_repo || 'mihsian77/wine-10.17-winlator' }}
+        run: |
+          echo "待构建: ${{ steps.d.outputs.refs }}"
+          IFS=',' read -ra REFS <<< "${{ steps.d.outputs.refs }}"
+          for ref in "${REFS[@]}"; do
+            gh workflow run "Build Wine (Winlator)" \
+              -R "$GITHUB_REPOSITORY" \
+              -f wine_repo="$REPO" \
+              -f refs="$ref" \
+              -f wine_version="${{ steps.d.outputs.version }}"
+            echo "  已触发: $ref"
+          done
