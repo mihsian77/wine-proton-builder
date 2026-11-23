@@ -44,6 +44,12 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "source: $(git rev-parse --short HEAD) $(git log -1 --format=%s)"
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+          df -h /
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
