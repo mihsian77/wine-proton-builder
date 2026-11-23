@@ -80,17 +80,19 @@ if [ -d "nls" ]; then
   make -C nls -j"${JOBS}"
   [ -f "nls/locale.nls" ] && echo "  locale.nls 已生成" || echo "  WARNING: locale.nls 未生成"
 fi
-# .mo 生成在构建目录，不是源码目录
+
+echo "==> [2/3] 全量编译（${JOBS} 线程）"
+make -j"${JOBS}"
+
+# .mo 在第二阶段随全量 make 生成，位置在构建目录 po/，不是源码 po/
 MO_COUNT=$(find po -maxdepth 1 -name "*.mo" 2>/dev/null | wc -l | tr -d ' ')
 echo "  构建目录 .mo 数量: ${MO_COUNT}"
 if [ "${MO_COUNT}" -eq 0 ]; then
   echo "ERROR: 没有生成 .mo，NLS 汉化会缺失"
   exit 1
 fi
+[ -f "po/zh_CN.mo" ] || echo "  WARNING: 缺少 po/zh_CN.mo"
 grep -q "zh_CN" po/LINGUAS 2>/dev/null || echo "  WARNING: po/LINGUAS 未包含 zh_CN"
-
-echo "==> [2/3] 全量编译（${JOBS} 线程）"
-make -j"${JOBS}"
 
 echo "==> [3/3] install + 体积优化"
 make install STRIP=true
