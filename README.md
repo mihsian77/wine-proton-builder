@@ -1,89 +1,59 @@
 # wine-proton-builder
 
-Winlator 通用 Wine/Proton 源码编译仓库。
+Winlator 用的 Wine 源码编译脚本。目前只跑通 x86_64 WOW64 一条线，产出 `.wcp` 和 `.whp` 两个包。
 
-## 特性
+## 现状
 
-- **双架构**：x86_64 (glibc/mingw) + arm64ec (bionic/NDK+llvm-mingw)
-- **原生汉化**：gettext NLS 全语言嵌入 PE 资源，非二进制硬改
-- **双格式输出**：`.wcp` (ludashi/bionic) + `.whp` (winlator-pulse)
-- **prefixPack 融合生成**：wineboot 真实初始化 + 中文注册表配置 + 中文字体注入
-- **闭源包二次加工**：解包已有 wcp/whp → 替换汉化资源 → 重打包
-- **参数化构建**：手动触发选择版本/架构/构建类型，支持任意 Wine/Proton 版本
+已经能跑的：
 
-## 仓库结构
+- 分阶段编译：宿主编 native tools（wrc/winebuild）+ NLS，再交叉编译 PE，让 wrc 把 `po/<lang>.mo` 的翻译写进 PE 资源
+- prefixPack：用刚编译出来的 wine 执行 wineboot 生成，不是用宿主 apt 的 wine，注册表版本和产物一致
+- 汉化走 gettext NLS + 中文代码页/区域 + CJK 字体注入，不做二进制字符串硬改
+- 双格式打包：`.wcp` 内层 `prefixPack.txz`（xz），`.whp` 内层 `container-pattern-*.tzst`（zstd）
 
-```
-├── .github/workflows/
-│   ├── build-wine.yml           # 纯 Wine 编译（参数化版本/架构）
-│   ├── build-proton.yml         # Proton 编译（nicholasx417 版本）
-│   └── repackage-closed.yml     # 闭源包二次加工
-├── scripts/
-│   ├── build-native-tools.sh    # 阶段0：编译 native tools + NLS
-│   ├── build-cross-x86_64.sh    # 阶段1：x86_64 交叉编译
-│   ├── build-cross-arm64ec.sh   # 阶段1：arm64ec 交叉编译
-│   ├── gen-prefixpack.sh        # prefixPack 生成（wineboot + 中文配置）
-│   ├── package-wcp.sh           # wcp 打包
-│   ├── package-whp.sh           # whp 打包
-│   └── repackage.sh             # 闭源包解包→汉化→重打包
-├── patches/
-│   ├── localization/            # 汉化补丁（po 修正等）
-│   └── compatibility/           # 兼容性补丁（termux 路径等）
-├── prefix/
-│   └── chinese-reg.patch        # 中文注册表补丁
-└── docs/
-    ├── architecture.md          # 编译架构说明
-    └── packaging.md             # wcp/whp 格式说明
-```
+还没实现（早期 README 里列过，仓库里没有对应文件，这里标清楚免得看错）：
 
-## 编译架构
+- arm64ec 构建、Proton 构建
+- 闭源包二次加工（解包 → 换资源 → 重打包）
+- `patches/` 补丁库和 `docs/`
 
-### 分阶段编译（确保 NLS 正确嵌入 PE）
+## 目录
 
 ```
-阶段0: 宿主编译器(gcc) → native Wine tools (wrc/winebuild) + NLS (.mo)
-阶段1: mingw/llvm-mingw 交叉编译 → PE (dll/exe)，--with-wine-tools 指向阶段0
+.github/workflows/build-wine.yml   参数化构建：选源码仓库/ref/版本/线程
+scripts/build-wine.sh              分阶段编译 + strip + 产物校验
+scripts/gen-prefixpack.sh          prefixPack 生成（wineboot + 中文注册表 + 字体）
+scripts/package-wcp.sh             .wcp 打包
+scripts/package-whp.sh             .whp 打包
 ```
 
-关键：wrc 在编译 PE 资源时加载 `po/<lang>.mo`，将翻译嵌入 PE 资源段。
-直接全量 mingw 编译会导致 wrc 无法正确加载翻译。
+## 用法
 
-### 双架构差异
+Actions → **Build Wine (Winlator)** → Run workflow，填四个参数：
 
-| 维度 | x86_64 | arm64ec |
-|------|--------|---------|
-| 目标 | x86_64-w64-mingw32 | aarch64-linux-android28 (bionic) |
-| 工具链 | mingw-w64 | NDK clang + bylaws/llvm-mingw(ucrt) |
-| 环境 | 原生 | termuxfs (bionic 依赖) |
-| strip | mingw-strip | llvm-strip (COFF+ELF 双支持) |
+| 参数 | 说明 |
+|---|---|
+| `wine_repo` | 源码仓库，默认 `mihsian77/wine-10.17-winlator` |
+| `wine_ref` | 分支/tag/commit |
+| `wine_version` | 产物版本号，写进目录名和 profile.json |
+| `jobs` | 编译线程数，2 核 runner 给 2 就行 |
 
-## 使用
+跑完得到两个 artifact：`Wine-<ver>-x86_64-zh`（wcp）和 `Wine-<ver>-x86_64-zh-whp`（whp）。
 
-### 编译 Wine
+## 几个踩过的坑
 
-1. Actions → Build Wine → Run workflow
-2. 选择版本（如 `10.17`）、架构（x86_64/arm64ec/both）
-3. 等待编译完成，下载 Artifact
-
-### 编译 Proton
-
-1. Actions → Build Proton → Run workflow
-2. 选择 nicholasx417 版本（9.0/10.0/11.0）、架构
-3. 下载 Artifact
-
-### 闭源包二次加工
-
-1. Actions → Repackage Closed → Run workflow
-2. 上传已有 wcp/whp 包
-3. 自动解包 → 替换汉化资源 → 重打包
+1. **源码必须是 Winlator 那一套**。wineserver 的 socket 目录在 `server/request.c` 和 `dlls/ntdll/unix/server.c` 里写死为 `/data/data/com.winlator/files/rootfs/tmp`，普通 winehq 源码没这条路径，CI 上 wineboot 会直接退出。脚本里已经在生成 prefix 前把目录建出来。
+2. **wineboot 返回不等于 prefix 写完**。wineserver 还在后台，`system.reg`/`user.reg` 可能没落盘，这时候打包会得到一个没有注册表的 prefix，patch 阶段必失败。脚本里先 `wineserver -k` 再等文件出现。
+3. **whp 外层必须是 zstd**。早期脚本用 xz，打出来 magic 是 `fd377a585a00`，和 App 实际读的 `28b52ffd` 不符。
+4. **NLS 的 `.mo` 在构建目录**，不在源码 `po/` 下，查错时别看错地方。
 
 ## 参考项目
 
-- [as14725836/proton-wine](https://github.com/as14725836/proton-wine) — arm64ec bionic 编译权威参考
-- [as14725836/termux-glibc-mangohud](https://github.com/as14725836/termux-glibc-mangohud) — 分阶段编译 + 补丁库
-- [Waim908/wine-winlator](https://github.com/Waim908/wine-winlator) — wcp/whp 打包结构权威
+- [as14725836/termux-glibc-mangohud](https://github.com/as14725836/termux-glibc-mangohud) — CI 里管补丁序列和多版本矩阵
+- [Waim908/wine-winlator](https://github.com/Waim908/wine-winlator) — wcp/whp 包结构
 - [kaldin54321-boop/Wine-for-winlator-official](https://github.com/kaldin54321-boop/Wine-for-winlator-official) — 参数化 workflow 设计
+- [marcomorosi06/DroidWine](https://github.com/marcomorosi06/DroidWine) — 16KB 页大小修复
 
 ## 许可
 
-Wine 源码遵循 LGPL-2.1，本仓库编译脚本遵循 MIT。
+Wine 源码遵循 LGPL-2.1，本仓库脚本遵循 MIT。
