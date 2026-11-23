@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# package-wcp.sh - Winlator wcp 格式打包
-# 结构（参照 Waim908/wine-winlator）：
+# package-wcp.sh - Winlator wcp 格式打包（ludashi / bionic 系）
+#
+# 结构：
 #   根目录: bin/ lib/ share/ profile.json prefixPack.txz
-#   prefixPack.txz: xz 压缩
+#   prefixPack.txz: xz -9e
 #   外层: zstd --ultra -22
+#
 # 用法：package-wcp.sh <install_prefix> <prefixPack.tar> <输出.wcp> <版本> <架构>
 # ==============================================================================
 set -euo pipefail
@@ -18,15 +20,15 @@ ARCH="${5:-amd64}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-echo "==> [wcp] 组织目录结构..."
+echo "==> [wcp] 组织目录结构"
 cp -r "${INSTALL_PREFIX}/bin" "${TMP}/"
 cp -r "${INSTALL_PREFIX}/lib" "${TMP}/"
 [ -d "${INSTALL_PREFIX}/share" ] && cp -r "${INSTALL_PREFIX}/share" "${TMP}/"
 
-echo "==> [wcp] 压缩 prefixPack.txz (xz -9e)..."
+echo "==> [wcp] 压缩 prefixPack.txz (xz -9e)"
 xz -T0 -9e -c "${PREFIX_TAR}" > "${TMP}/prefixPack.txz"
 
-echo "==> [wcp] 生成 profile.json..."
+echo "==> [wcp] 生成 profile.json"
 cat > "${TMP}/profile.json" <<EOF
 {
   "type": "Wine",
@@ -42,13 +44,12 @@ cat > "${TMP}/profile.json" <<EOF
 }
 EOF
 
-echo "==> [wcp] 清理多余文件..."
-find "${TMP}" -type f -name "*.a" -delete 2>/dev/null || true
-find "${TMP}" -type f -name "*.def" -delete 2>/dev/null || true
-rm -rf "${TMP}/share/man" "${TMP}/share/doc" 2>/dev/null || true
+echo "==> [wcp] 清理冗余"
+find "${TMP}" -type f \( -name "*.a" -o -name "*.def" \) -delete 2>/dev/null || true
+rm -rf "${TMP}/share/man" "${TMP}/share/doc" "${TMP}/include" 2>/dev/null || true
 
-echo "==> [wcp] 打包 (zstd --ultra -22)..."
-mkdir -p "$(dirname "$OUTPUT")"
+echo "==> [wcp] 打包（外层 zstd）"
+mkdir -p "$(dirname "${OUTPUT}")"
 cd "${TMP}"
-tar -I "zstd -T0 --ultra -22" -cf "${OUTPUT}" .
+tar --owner=0 --group=0 -I "zstd -T0 --ultra -22" -cf "${OUTPUT}" .
 echo "==> [wcp] 完成: ${OUTPUT} ($(du -h "${OUTPUT}" | cut -f1))"
