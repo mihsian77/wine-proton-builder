@@ -1,0 +1,146 @@
+name: Build Wine (Winlator)
+
+on:
+  workflow_dispatch:
+    inputs:
+      wine_repo:
+        description: 'Wine 源码仓库（需含 Winlator 兼容补丁）'
+        required: true
+        default: 'mihsian77/wine-10.17-winlator'
+        type: string
+      wine_ref:
+        description: '源码 ref（分支/tag/commit）'
+        required: true
+        default: 'main'
+        type: string
+      wine_version:
+        description: '产物版本号，例如 10.17'
+        required: true
+        default: '10.17'
+        type: string
+      jobs:
+        description: '编译线程数'
+        required: false
+        default: '2'
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+
+      - name: Checkout Wine source
+        run: |
+          git init src
+          cd src
+          git remote add origin "https://github.com/${{ inputs.wine_repo }}.git"
+          git fetch --depth 1 origin "${{ inputs.wine_ref }}"
+          git checkout FETCH_HEAD
+          echo "source: $(git rev-parse --short HEAD) $(git log -1 --format=%s)"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential bison flex pkg-config \
+            gcc-mingw-w64-i686 g++-mingw-w64-i686 \
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64 \
+            gettext zstd xz-utils xvfb unzip \
+            libfreetype-dev libfontconfig1-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libvulkan-dev libsdl2-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgstreamer-plugins-good1.0-dev libgstreamer-plugins-bad1.0-dev \
+            libunwind-dev libasound2-dev libpulse-dev libgnutls28-dev libmpg123-dev \
+            libopenal-dev libpng-dev libjpeg-dev libtiff-dev libwebp-dev liblcms2-dev \
+            libxml2-dev libxslt1-dev libx11-dev libxcursor-dev libxi-dev \
+            libxrandr-dev libxrender-dev libkrb5-dev libgssapi-krb5-2 krb5-config
+
+      - name: Preflight
+        run: |
+          fail=0
+          for c in flex bison msgfmt make x86_64-w64-mingw32-gcc i686-w64-mingw32-gcc \
+                   x86_64-w64-mingw32-strip i686-w64-mingw32-strip zstd xz xvfb-run; do
+            if command -v "$c" >/dev/null 2>&1; then
+              printf '  OK   %-28s %s\n' "$c" "$(command -v "$c")"
+            else
+              printf '  MISS %-28s\n' "$c"; fail=1
+            fi
+          done
+          pkg-config --exists gstreamer-1.0 && echo '  OK   gstreamer-1.0' || { echo '  MISS gstreamer-1.0'; fail=1; }
+          exit $fail
+
+      - name: Download CJK fonts
+        run: |
+          mkdir -p fonts
+          curl -sSL -o /tmp/noto.zip "https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/08_NotoSansCJKsc.zip"
+          unzip -q -o /tmp/noto.zip -d /tmp/noto || true
+          find /tmp/noto -name '*.otf' -exec cp {} fonts/ \;
+          COUNT=$(ls fonts/*.otf 2>/dev/null | wc -l)
+          echo "  fonts: ${COUNT}"
+          [ "${COUNT}" -gt 0 ] || { echo "ERROR: 中文字体下载失败"; exit 1; }
+
+      - name: Build Wine
+        run: |
+          bash scripts/build-wine.sh \
+            --srcdir "${{ github.workspace }}/src" \
+            --prefix /tmp/wine_build \
+            --builddir /tmp/wine-build-tree \
+            --jobs "${{ inputs.jobs }}"
+
+      - name: Generate prefixPack
+        run: |
+          bash scripts/gen-prefixpack.sh \
+            --wine-prefix /tmp/wine_build \
+            --output dist/prefixPack.tar \
+            --fonts "${{ github.workspace }}/fonts" \
+            --workdir /tmp/prefix-gen
+
+      - name: Package wcp + whp
+        run: |
+          mkdir -p dist
+          bash scripts/package-wcp.sh /tmp/wine_build dist/prefixPack.tar \
+            "dist/wine-${{ inputs.wine_version }}-amd64.wcp" "${{ inputs.wine_version }}" amd64
+          bash scripts/package-whp.sh /tmp/wine_build dist/prefixPack.tar \
+            "dist/wine-${{ inputs.wine_version }}.whp" "${{ inputs.wine_version }}"
+
+      - name: Verify packages
+        run: |
+          set -e
+          ls -lh dist/
+          echo "=== whp ==="
+          magic=$(xxd -l 4 -p dist/wine-${{ inputs.wine_version }}.whp)
+          echo "  magic: ${magic}"
+          [ "${magic}" = "28b52ffd" ] || { echo "ERROR: whp 外层不是 zstd"; exit 1; }
+          zstd -dc dist/wine-${{ inputs.wine_version }}.whp | tar -tf - > /tmp/whp.lst
+          grep -q "^wine-${{ inputs.wine_version }}-/bin/" /tmp/whp.lst || { echo "ERROR: whp 缺 wine 目录"; exit 1; }
+          grep -q "^container-pattern-" /tmp/whp.lst || { echo "ERROR: whp 缺 container-pattern"; exit 1; }
+          cp_size=$(zstd -dc dist/wine-${{ inputs.wine_version }}.whp | tar -xOf - "container-pattern-${{ inputs.wine_version }}.tzst" | wc -c)
+          echo "  container-pattern: $((cp_size/1024/1024))MB"
+          [ "${cp_size}" -gt 10485760 ] || { echo "ERROR: container-pattern 过小"; exit 1; }
+
+          echo "=== wcp ==="
+          zstd -dc dist/wine-${{ inputs.wine_version }}-amd64.wcp | tar -tf - > /tmp/wcp.lst
+          grep -q "prefixPack.txz" /tmp/wcp.lst || { echo "ERROR: wcp 缺 prefixPack.txz"; exit 1; }
+          grep -q "profile.json" /tmp/wcp.lst || { echo "ERROR: wcp 缺 profile.json"; exit 1; }
+          txz_size=$(zstd -dc dist/wine-${{ inputs.wine_version }}-amd64.wcp | tar -xOf - prefixPack.txz | wc -c)
+          echo "  prefixPack.txz: $((txz_size/1024/1024))MB"
+          [ "${txz_size}" -gt 10485760 ] || { echo "ERROR: prefixPack.txz 过小"; exit 1; }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wine-${{ inputs.wine_version }}-x86_64-zh
+          path: dist/*.wcp
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload whp
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wine-${{ inputs.wine_version }}-x86_64-zh-whp
+          path: dist/*.whp
+          retention-days: 30
+          if-no-files-found: error
