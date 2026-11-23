@@ -19,6 +19,11 @@ PREFIX_TAR="${2:?缺少 prefixPack.tar}"
 OUTPUT="${3:?缺少输出路径}"
 VERSION="${4:-10.17}"
 
+# 脚本后面会 cd 到临时目录，输出路径必须先转成绝对路径
+mkdir -p "$(dirname "${OUTPUT}")"
+OUTPUT="$(cd "$(dirname "${OUTPUT}")" && pwd)/$(basename "${OUTPUT}")"
+PREFIX_TAR="$(cd "$(dirname "${PREFIX_TAR}")" && pwd)/$(basename "${PREFIX_TAR}")"
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
