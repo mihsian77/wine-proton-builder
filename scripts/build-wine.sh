@@ -52,7 +52,10 @@ else
 fi
 
 if [ ! -f "Makefile" ]; then
-  echo "==> [0/3] configure（WOW64: i386 + x86_64，NLS 开启）"
+  echo "==> [0/3] configure（WOW64: i386 + x86_64，NLS 开启，unix 库 16KB 页对齐）"
+  # LDFLAGS 只作用于 unix .so 链接（PE 走 i386/x86_64_LDFLAGS），
+  # 16KB 对齐兼容 Android 15+ 的 16KB 页内核设备
+  export LDFLAGS="${LDFLAGS:-} -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
   "${SRCDIR}/configure" --prefix="${INSTALL_PREFIX}" \
     --enable-archs=i386,x86_64 \
     --enable-win64 \
