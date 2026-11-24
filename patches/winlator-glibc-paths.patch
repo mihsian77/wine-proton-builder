@@ -1,0 +1,33 @@
+--- a/server/request.c	2026-11-24 09:29:10.175554214 +0800
++++ b/server/request.c	2026-11-24 09:29:10.240554379 +0800
+@@ -621,7 +621,7 @@
+     /* create the base directory if needed */
+ 
+ #ifdef __ANDROID__  /* there's no /tmp dir on Android */
+-    if (asprintf( &base_dir, "%s/.wineserver", config_dir ) == -1)
++    if (asprintf( &base_dir, "/data/data/com.winlator/files/rootfs/tmp/.wine-%u", getuid() ) == -1)
+         fatal_error( "out of memory\n" );
+ #else
+     if (asprintf( &base_dir, "/tmp/.wine-%u", getuid() ) == -1)
+--- a/dlls/ntdll/unix/server.c	2026-11-24 09:29:10.176554216 +0800
++++ b/dlls/ntdll/unix/server.c	2026-11-24 09:29:10.241554381 +0800
+@@ -1306,7 +1306,7 @@
+     char *dir = NULL;
+ 
+ #ifdef __ANDROID__  /* there's no /tmp dir on Android */
+-    asprintf( &dir, "%s/.wineserver/server-%llx-%llx", config_dir, (unsigned long long)dev, (unsigned long long)ino );
++    asprintf( &dir, "/data/data/com.winlator/files/rootfs/tmp/.wine-%u/server-%llx-%llx", getuid(), (unsigned long long)dev, (unsigned long long)ino );
+ #else
+     asprintf( &dir, "/tmp/.wine-%u/server-%llx-%llx", getuid(), (unsigned long long)dev, (unsigned long long)ino );
+ #endif
+--- a/server/unicode.c	2026-11-24 09:29:10.178554221 +0800
++++ b/server/unicode.c	2026-11-24 09:29:10.241554381 +0800
+@@ -327,7 +327,7 @@
+ /* load the case mapping table */
+ struct fd *load_intl_file(void)
+ {
+-    static const char *nls_dirs[] = { NULL, DATADIR "/wine/nls", "/usr/local/share/wine/nls", "/usr/share/wine/nls" };
++    static const char *nls_dirs[] = { NULL, DATADIR "/wine/nls", "/data/data/com.winlator/files/rootfs/usr/local/share/wine/nls", "/data/data/com.winlator/files/rootfs/usr/share/wine/nls" };
+     static const WCHAR nt_pathW[] = {'C',':','\\','w','i','n','d','o','w','s','\\',
+         's','y','s','t','e','m','3','2','\\','l','_','i','n','t','l','.','n','l','s',0};
+     static const struct unicode_str nt_name = { nt_pathW, sizeof(nt_pathW) };
