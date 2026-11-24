@@ -6,17 +6,17 @@ on:
       wine_repo:
         description: 'Wine 源码仓库（需含 Winlator 兼容补丁）'
         required: true
-        default: 'mihsian77/wine-10.17-winlator'
+        default: 'wine-mirror/wine'
         type: string
       refs:
         description: '要构建的 ref，逗号分隔；可填分支/tag/commit，多个版本会并行编译'
         required: true
-        default: 'main'
+        default: 'wine-11.22'
         type: string
       wine_version:
         description: 'ref 不含版本号时（如 main/SHA）使用的版本名'
         required: false
-        default: '10.17'
+        default: '11.22'
         type: string
       jobs:
         description: '每个构建的编译线程数'

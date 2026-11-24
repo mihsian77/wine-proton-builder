@@ -1,15 +1,12 @@
 name: Watch Upstream
 
 on:
-  schedule:
-    # 每天 03:17 UTC（北京 11:17）检查一次，只做 API 比对，不跑编译
-    - cron: '17 3 * * *'
+  # 原定时任务跟随已删除的 fork 的 main 分支，先停用；改为手动指定需监控的仓库。
   workflow_dispatch:
     inputs:
       wine_repo:
-        description: '要监控的源码仓库'
-        required: false
-        default: 'mihsian77/wine-10.17-winlator'
+        description: '要监控的源码仓库（fork）'
+        required: true
         type: string
       max_dispatch:
         description: '单次最多触发的构建数'
@@ -32,7 +29,7 @@ jobs:
         id: d
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ inputs.wine_repo || 'mihsian77/wine-10.17-winlator' }}
+          REPO: ${{ inputs.wine_repo }}
           MAX_DISPATCH: ${{ inputs.max_dispatch || '3' }}
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
@@ -46,7 +43,9 @@ jobs:
               out = subprocess.run(["gh", "api", path], capture_output=True, text=True)
               return out.stdout.strip() if out.returncode == 0 else ""
 
-          sha = api(f"repos/{repo}/commits/main")
+          info = api(f"repos/{repo}")
+          default_branch = json.loads(info).get("default_branch", "main") if info else "main"
+          sha = api(f"repos/{repo}/commits/{default_branch}")
           sha = json.loads(sha)["sha"] if sha else ""
 
           version = ""
@@ -80,7 +79,7 @@ jobs:
         if: steps.d.outputs.refs != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ inputs.wine_repo || 'mihsian77/wine-10.17-winlator' }}
+          REPO: ${{ inputs.wine_repo }}
         run: |
           echo "待构建: ${{ steps.d.outputs.refs }}"
           IFS=',' read -ra REFS <<< "${{ steps.d.outputs.refs }}"
