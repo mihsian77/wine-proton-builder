@@ -1,6 +1,31 @@
---- a/server/request.c	2026-11-24 09:29:10.175554214 +0800
-+++ b/server/request.c	2026-11-24 09:29:10.240554379 +0800
-@@ -621,7 +621,7 @@
+diff -ruN a/dlls/ntdll/unix/server.c b/dlls/ntdll/unix/server.c
+--- a/dlls/ntdll/unix/server.c	2026-11-24 16:14:42.270738841 +0800
++++ b/dlls/ntdll/unix/server.c	2026-11-24 16:14:42.275738850 +0800
+@@ -1306,9 +1306,9 @@
+     char *dir = NULL;
+ 
+ #ifdef __ANDROID__  /* there's no /tmp dir on Android */
+-    asprintf( &dir, "%s/.wineserver/server-%llx-%llx", config_dir, (unsigned long long)dev, (unsigned long long)ino );
++    asprintf( &dir, "/data/data/com.winlator/files/rootfs/tmp/.wine-%u/server-%llx-%llx", getuid(), (unsigned long long)dev, (unsigned long long)ino );
+ #else
+-    asprintf( &dir, "/tmp/.wine-%u/server-%llx-%llx", getuid(), (unsigned long long)dev, (unsigned long long)ino );
++    asprintf( &dir, "/data/data/com.winlator/files/rootfs/tmp/.wine-%u/server-%llx-%llx", getuid(), (unsigned long long)dev, (unsigned long long)ino );
+ #endif
+     return dir;
+ }
+@@ -1351,7 +1351,7 @@
+     {
+         mkdir( "drive_c", 0777 );
+         symlink( "../drive_c", "dosdevices/c:" );
+-        symlink( "/", "dosdevices/z:" );
++        symlink( "/data/data/com.winlator/files/rootfs", "dosdevices/z:" );
+     }
+     else if (errno != EEXIST) fatal_perror( "cannot create %s/dosdevices", config_dir );
+ 
+diff -ruN a/server/request.c b/server/request.c
+--- a/server/request.c	2026-11-24 16:14:41.142736638 +0800
++++ b/server/request.c	2026-11-24 16:14:41.376737095 +0800
+@@ -621,10 +621,10 @@
      /* create the base directory if needed */
  
  #ifdef __ANDROID__  /* there's no /tmp dir on Android */
@@ -8,20 +33,14 @@
 +    if (asprintf( &base_dir, "/data/data/com.winlator/files/rootfs/tmp/.wine-%u", getuid() ) == -1)
          fatal_error( "out of memory\n" );
  #else
-     if (asprintf( &base_dir, "/tmp/.wine-%u", getuid() ) == -1)
---- a/dlls/ntdll/unix/server.c	2026-11-24 09:29:10.176554216 +0800
-+++ b/dlls/ntdll/unix/server.c	2026-11-24 09:29:10.241554381 +0800
-@@ -1306,7 +1306,7 @@
-     char *dir = NULL;
- 
- #ifdef __ANDROID__  /* there's no /tmp dir on Android */
--    asprintf( &dir, "%s/.wineserver/server-%llx-%llx", config_dir, (unsigned long long)dev, (unsigned long long)ino );
-+    asprintf( &dir, "/data/data/com.winlator/files/rootfs/tmp/.wine-%u/server-%llx-%llx", getuid(), (unsigned long long)dev, (unsigned long long)ino );
- #else
-     asprintf( &dir, "/tmp/.wine-%u/server-%llx-%llx", getuid(), (unsigned long long)dev, (unsigned long long)ino );
+-    if (asprintf( &base_dir, "/tmp/.wine-%u", getuid() ) == -1)
++    if (asprintf( &base_dir, "/data/data/com.winlator/files/rootfs/tmp/.wine-%u", getuid() ) == -1)
+         fatal_error( "out of memory\n" );
  #endif
---- a/server/unicode.c	2026-11-24 09:29:10.178554221 +0800
-+++ b/server/unicode.c	2026-11-24 09:29:10.241554381 +0800
+     create_dir( base_dir, &st2 );
+diff -ruN a/server/unicode.c b/server/unicode.c
+--- a/server/unicode.c	2026-11-24 16:14:41.918738153 +0800
++++ b/server/unicode.c	2026-11-24 16:14:41.924738165 +0800
 @@ -327,7 +327,7 @@
  /* load the case mapping table */
  struct fd *load_intl_file(void)
