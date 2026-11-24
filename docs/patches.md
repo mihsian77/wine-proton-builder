@@ -19,7 +19,7 @@
 | 补丁 | 作用 |
 |---|---|
 | `dlls_dnsapi_libresolv.c.patch` | dnsapi 走 libresolv |
-| `termux-dns-fix.patch` | DNS 解析修正 |
+| `dns-timeout-guard.patch` | DNS 解析修正 |
 | `dlls_midimap_midimap.c.patch`、`dlls_midimap_Makefile.in.patch` | MIDI 映射 |
 | `dlls_win32u_clipboard.c.patch` | 剪贴板 |
 | `dlls_user32_Makefile.in.patch` | user32 构建适配 |
