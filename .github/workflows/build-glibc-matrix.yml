@@ -11,6 +11,12 @@ on:
         description: '编译线程数'
         required: false
         default: '4'
+      profile:
+        description: '补丁档位：core=仅路径修正；enhanced=路径修正+平台增强补丁集'
+        required: false
+        default: 'core'
+        type: choice
+        options: [core, enhanced]
 
 permissions:
   contents: read
@@ -80,6 +86,15 @@ jobs:
           patch -p1 --forward < ../patches/winlator-glibc-paths.patch
           grep -n 'com.winlator' server/request.c dlls/ntdll/unix/server.c server/unicode.c
 
+      - name: Apply enhanced patch set
+        if: inputs.profile == 'enhanced'
+        run: |
+          cd src
+          for p in ../patches/enhanced/*.patch; do
+            echo "== $(basename "$p")"
+            patch -p1 --forward < "$p"
+          done
+
       - name: Preflight
         run: |
           fail=0
@@ -98,7 +113,26 @@ jobs:
 
       - name: Package
         run: |
-          NAME="wine-${{ matrix.version }}-x86_64-glibc"
+          SUFFIX=""
+          [ "${{ inputs.profile }}" = "enhanced" ] && SUFFIX="-enhanced"
+          NAME="wine-${{ matrix.version }}-x86_64-glibc${SUFFIX}"
+          {
+            echo "version: ${{ matrix.version }}"
+            echo "upstream: wine-mirror/wine tag wine-${{ matrix.version }}"
+            echo "source_commit: $(git -C src rev-parse HEAD)"
+            echo "profile: ${{ inputs.profile }}"
+            echo "base_patch: winlator-glibc-paths.patch sha256=$(sha256sum patches/winlator-glibc-paths.patch | cut -d' ' -f1)"
+            if [ "${{ inputs.profile }}" = "enhanced" ]; then
+              echo "enhanced_patches:"
+              for p in patches/enhanced/*.patch; do
+                echo "  $(basename "$p") sha256=$(sha256sum "$p" | cut -d' ' -f1)"
+              done
+            fi
+            echo "host_gcc: $(gcc -dumpfullversion)"
+            echo "mingw_gcc: $(x86_64-w64-mingw32-gcc -dumpfullversion)"
+            echo "unix_ldflags: -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
+            echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > /tmp/wine_build/BUILD_INFO.txt
           tar -C /tmp/wine_build -cJf "${NAME}.tar.xz" .
           sha256sum "${NAME}.tar.xz" | tee "${NAME}.tar.xz.sha256"
           echo "files:" && ls -lh "${NAME}".*
@@ -106,8 +140,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wine-${{ matrix.version }}-x86_64-glibc
+          name: wine-${{ matrix.version }}-x86_64-glibc${{ inputs.profile == 'enhanced' && '-enhanced' || '' }}
           path: |
-            wine-${{ matrix.version }}-x86_64-glibc.tar.xz
-            wine-${{ matrix.version }}-x86_64-glibc.tar.xz.sha256
+            wine-${{ matrix.version }}-x86_64-glibc*.tar.xz
+            wine-${{ matrix.version }}-x86_64-glibc*.tar.xz.sha256
           retention-days: 14
