@@ -1,0 +1,24 @@
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -2073,6 +2073,13 @@
+  *
+  * Main entry point called by the wine loader.
+  */
++static void init_dns_config(void)
++{
++    /* 容器内没有 resolv.conf 时缩短解析超时，避免服务启动卡住 */
++    if (!access("/etc/resolv.conf", R_OK)) return;
++    setenv("RES_OPTIONS", "timeout:1 attempts:1", 0);
++}
++
+ DECLSPEC_EXPORT void __wine_main( int argc, char *argv[] )
+ {
+     main_argc = argc;
+@@ -2094,6 +2101,7 @@
+ 
+     virtual_init();
+     init_environment();
++    init_dns_config();
+ 
+ #ifdef __APPLE__
+     apple_main_thread();
