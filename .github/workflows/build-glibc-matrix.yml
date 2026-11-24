@@ -17,9 +17,14 @@ on:
         default: 'core'
         type: choice
         options: [core, enhanced]
+      publish_release:
+        description: '构建成功后发布 Release（tag: wine-<ver>-glibc[-enhanced]）'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   prepare:
@@ -136,6 +141,26 @@ jobs:
           tar -C /tmp/wine_build -cJf "${NAME}.tar.xz" .
           sha256sum "${NAME}.tar.xz" | tee "${NAME}.tar.xz.sha256"
           echo "files:" && ls -lh "${NAME}".*
+
+      - name: Publish release
+        if: inputs.publish_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SUFFIX=""
+          [ "${{ inputs.profile }}" = "enhanced" ] && SUFFIX="-enhanced"
+          TAG="wine-${{ matrix.version }}-glibc${SUFFIX}"
+          cp /tmp/wine_build/BUILD_INFO.txt "wine-${{ matrix.version }}-x86_64-glibc${SUFFIX}.BUILD_INFO.txt"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG 已存在，跳过"
+          else
+            gh release create "$TAG" \
+              --title "Wine ${{ matrix.version }} x86_64 glibc${SUFFIX}" \
+              --notes "版本 ${{ matrix.version }}，档位 ${{ inputs.profile }}。资产为编译树、校验和与构建清单。" \
+              "wine-${{ matrix.version }}-x86_64-glibc${SUFFIX}.tar.xz" \
+              "wine-${{ matrix.version }}-x86_64-glibc${SUFFIX}.tar.xz.sha256" \
+              "wine-${{ matrix.version }}-x86_64-glibc${SUFFIX}.BUILD_INFO.txt"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
