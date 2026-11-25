@@ -89,7 +89,7 @@ jobs:
       - name: Apply patches
         run: |
           cd src
-          patch -p1 --forward < patches/winlator-glibc-paths.patch
+          patch -p1 --forward < ../patches/winlator-glibc-paths.patch
           grep -n 'com.winlator' server/request.c dlls/ntdll/unix/server.c server/unicode.c
           if [ "${{ inputs.profile }}" = "enhanced" ]; then
             for p in ../patches/enhanced/*.patch; do
