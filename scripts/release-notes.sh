@@ -57,13 +57,11 @@ echo
 
 echo "### 安装"
 echo
-FMT_LIST=""
 for f in $FORMATS; do
   case "$f" in
-    whp) FMT_LIST="${FMT_LIST}- \`wine-${VER}-${ARCH}.whp\` — winlator-pulse 导入"$'\n'";;
-    wcp) FMT_LIST="${FMT_LIST}- \`wine-${VER}-${ARCH}.wcp\` — ludashi_plus 导入"$'\n'";;
+    whp) printf -- '- \x60wine-%s-%s.whp\x60 - winlator-pulse 导入\n' "$VER" "$ARCH" ;;
+    wcp) printf -- '- \x60wine-%s-%s.wcp\x60 - ludashi_plus 导入\n' "$VER" "$ARCH" ;;
   esac
 done
-printf '%s' "$FMT_LIST"
 echo
 echo "包内 prefix 由本包 wine 生成（wineboot），注册表版本与产物一致。"
