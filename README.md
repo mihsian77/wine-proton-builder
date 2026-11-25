@@ -1,66 +1,67 @@
 # wine-proton-builder
 
-Winlator 用的 Wine 源码编译。x86_64 WOW64 glibc 线已跑通全量稳定版
-（10.0–10.20、11.0–11.22，上游 wine-mirror/wine），产出 tar.xz 构建产物，
-另有 `.wcp` / `.whp` 打包脚本。
+面向 Winlator 系 Android 容器应用的 Wine 自动构建仓库。从上游 tag 出发编译，产出可直接导入的容器包，Release 正文记录上游来源、更新摘要与补丁清单。
 
-## 现状
+## 产物
 
-已经能跑的：
+| 资产 | 格式 | 适用 |
+|---|---|---|
+| `wine-<版本>-x86_64.whp` | WHIP 容器包 | winlator-pulse |
+| `wine-<版本>-x86_64.wcp` | WCP 容器包 | ludashi_plus |
 
-- 全量版本矩阵：`build-glibc-matrix.yml`，versions 逗号分隔，44 个稳定版一次跑完
-- 补丁档位：`core` 只打路径修正；`enhanced` 再加 6 件平台增强补丁
-  （dnsapi、midimap、clipboard、dns-fix 等，全部 vanilla 实测干净）
-- 路径修正补丁覆盖 glibc 分支：socket 目录落 rootfs/tmp，z 盘默认映射 rootfs
-- unix 库 16KB 页对齐（`-Wl,-z,max-page-size=16384`），兼容 16KB 页内核设备
-- 分阶段编译：宿主编 native tools + NLS，再交叉编译 PE，wrc 把 `po/<lang>.mo`
-  翻译写进 PE 资源；产物带 BUILD_INFO.txt（上游 commit、补丁 sha256、工具链）
-- prefixPack：用刚编译出来的 wine 执行 wineboot 生成，注册表版本和产物一致
-- 双格式打包：`.wcp` 内层 `prefixPack.txz`（xz），`.whp` 内层 `container-pattern-*.tzst`（zstd）
+包内构成：
 
-还没实现：
+- PE 侧 i386 + x86_64（WOW64 模式），NLS 中文资源随 PE 编入
+- unix 库按 16KB 页对齐，适配 16KB 页设备
+- prefix 由包内 wine 自身执行 wineboot 生成，注册表版本与产物一致
+- 每个 Release 附 SHA256SUMS.txt
 
-- arm64ec / bionic 第二线、Proton 基树构建（esync/fsync 需要 Proton 基树，
-  vanilla 10+ 已内置 ntsync，不硬塞）
-- 媒体变体（winedmo + 自带 x86_64 FFmpeg，语境多在 11.18，单独做 11.16–11.22）
-- 闭源包二次加工
+## 补丁
 
-## 目录
+- `patches/winlator-glibc-paths.patch`：路径修正。glibc 环境下 wineserver socket 目录与 NLS 路径指向容器 rootfs，z 盘映射 rootfs。
+- `patches/enhanced/`：增强补丁集，逐件独立、可按需取舍（dnsapi 走 libresolv、midimap 音频映射、win32u 剪贴板等），详见 docs/patches.md。
 
-```
-.github/workflows/build-glibc-matrix.yml  全量版本矩阵（core/enhanced 档位）
-.github/workflows/build-wine.yml          参数化构建：选源码仓库/ref/版本/线程
-patches/winlator-glibc-paths.patch        路径修正（socket + NLS + z 盘）
-patches/enhanced/                         6 件平台增强补丁
-scripts/build-wine.sh                     分阶段编译 + 16KB 对齐 + strip + 校验
-scripts/gen-prefixpack.sh                 prefixPack 生成
-scripts/package-wcp.sh / package-whp.sh   双格式打包
-docs/patches.md                          补丁清单与参考仓库
-```
+## 构建
 
-## 用法
+GitHub Actions → Build Wine，手动触发：
 
-Actions → **Build Wine glibc (Winlator 11.2)** → Run workflow：
-
-| 参数 | 说明 |
+| 输入 | 说明 |
 |---|---|
-| `versions` | 逗号分隔，对应上游 tag `wine-<ver>`，如 `11.22` 或全量 44 版 |
-| `jobs` | 编译线程数 |
-| `profile` | `core` 仅路径修正；`enhanced` 加平台增强补丁集 |
+| versions | 上游 tag `wine-<ver>` 的版本号，逗号分隔批量构建 |
+| profile | core：仅路径修正；enhanced：路径修正 + 增强补丁集 |
+| publish | 构建成功后发布 Release |
+| prerelease | 预发布标记（自动构建、未经真机验证时使用） |
 
-产物 `wine-<ver>-x86_64-glibc[-enhanced]`（tar.xz + sha256 + BUILD_INFO），保留 14 天。
+## 发布策略
 
-## 几个踩过的坑
+- tag `wine-<ver>`：已真机验证的稳定版，Latest 置顶
+- tag `wine-<ver>-auto`：CI 自动构建的预发布
+- Release 正文含：上游源码 tag 与提交链接、上游更新摘要（ANNOUNCE）、本仓库补丁清单、构建与验证状态
 
-1. **路径补丁必须覆盖 `#else` 分支**。socket 改写原来只在 `__ANDROID__` 分支里，
-   glibc 构建走的是 `#else`，补丁打了等于没打。现在两个分支都改，
-   沙箱实测 wineserver  socket 目录落在 `/data/data/com.winlator/files/rootfs/tmp`。
-2. **wineboot 返回不等于 prefix 写完**。wineserver 还在后台，注册表可能没落盘，
-   脚本里先 `wineserver -k` 再等文件出现。
-3. **whp 外层必须是 zstd**。xz 的 magic 和 App 实际读的 `28b52ffd` 不符。
-4. **NLS 的 `.mo` 在构建目录**，不在源码 `po/` 下。
+## 本地构建
 
+scripts/ 下各脚本可独立运行，参数见脚本头注释：
+
+```
+build.sh          编译（源码目录 + 安装前缀）
+gen-prefixpack.sh 用包内 wine 生成 prefixPack
+package-whp.sh    打 WHIP 包
+package-wcp.sh    打 WCP 包
+release-notes.sh  生成 Release 正文
+```
+
+## 构建原则
+
+- 上游 tag 直编，不引入第三方二进制
+- 不为通过编译降级 SDK，不注释报错代码，不删失败用例；源码编译失败直接中断构建
+- `--disable-tests` 是包构建的标准配置（测试用例不编入产物），不影响编译期错误检测
+
+## 路线图
+
+- arm64 构建线：llvm-mingw 编 PE + aarch64 unix 库，产出 arm64 容器包
+- Proton 构建线：bionic 依赖环境，NTSYNC 用户态库，产出 x86_64 / arm64ec 容器包
+- 上游 tag 监听，自动触发预发布构建
 
 ## 许可
 
-Wine 源码遵循 LGPL-2.1，本仓库脚本遵循 MIT。
+补丁作用于 Wine 源码，随 Wine 以 LGPL-2.1 释出；仓库脚本以 MIT 释出。
