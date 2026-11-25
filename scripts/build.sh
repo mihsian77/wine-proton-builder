@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# build-wine.sh - 分阶段编译 Wine（x86_64 WOW64，NLS 汉化嵌入）
+# build.sh - 分阶段编译 Wine（x86_64 WOW64，NLS 汉化嵌入）
 #
 # 阶段0: 宿主编译 native tools (wrc/winebuild) + NLS(.mo)
 # 阶段1: mingw 交叉编译 PE，wrc 加载 po/<lang>.mo 把翻译写进 PE 资源
 # 阶段2: make install + 体积优化 + strip
 #
 # 用法：
-#   build-wine.sh --srcdir <源码目录> [--prefix <安装目录>] [--builddir <构建目录>]
+#   build.sh --srcdir <源码目录> [--prefix <安装目录>] [--builddir <构建目录>]
 #                 [--jobs N] [--clean]
 # ==============================================================================
 set -euo pipefail
