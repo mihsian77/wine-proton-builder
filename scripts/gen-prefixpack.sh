@@ -117,13 +117,20 @@ else
 fi
 
 rm -rf "${WINEPREFIX}/dosdevices"/* 2>/dev/null || true
-rm -f "${WINEPREFIX}/.update-timestamp"
+
+# WinlatorCN 11.2 打开容器时会读 .wine/.update-timestamp 且不判空，缺失必崩；
+# 预写 "disable\n"（app 自装 wine 后写入的值），表示跳过前缀更新检查
+printf 'disable\n' > "${WINEPREFIX}/.update-timestamp"
 
 echo "==> [prefix] 打包"
 mkdir -p "$(dirname "${OUTPUT}")"
 tar -cf "${OUTPUT}" -C "${WORK}" .wine
 if ! tar -tf "${OUTPUT}" | grep -q "\.wine/system\.reg$"; then
   echo "ERROR: tar 结构异常，未包含 .wine/system.reg"
+  exit 1
+fi
+if ! tar -tf "${OUTPUT}" | grep -q "\.wine/\.update-timestamp$"; then
+  echo "ERROR: tar 结构异常，未包含 .wine/.update-timestamp"
   exit 1
 fi
 echo "PREFIX_OK ${OUTPUT} $(du -h "${OUTPUT}" | cut -f1)"
