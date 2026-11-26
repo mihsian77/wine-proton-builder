@@ -232,7 +232,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd dist
+          mkdir -p release
+          find dist -name '*.wcp' -o -name '*.wcp.xz' | while read -r f; do cp "$f" release/; done
+          cd release
           sha256sum *.wcp *.wcp.xz > SHA256SUMS.txt
           if [ "${{ inputs.prerelease }}" = "true" ]; then
             TAG="proton-${{ inputs.version }}-auto-$(date -u +%Y%m%d)"
