@@ -8,6 +8,8 @@
 |---|---|---|
 | `wine-<版本>-x86_64.whp` | WHIP 容器包 | winlator-pulse |
 | `wine-<版本>-x86_64.wcp` | WCP 容器包 | ludashi_plus |
+| `proton-<版本>-<架构>.wcp` | WCP（zstd） | GameNative（type=Proton） |
+| `proton-wine-<版本>-<架构>.wcp.xz` | WCP（xz） | CMOD / Ludashi（type=Wine） |
 
 包内构成：
 
@@ -23,7 +25,9 @@
 
 ## 构建
 
-GitHub Actions → Build Wine，手动触发：
+两条线，各自独立工作流。
+
+**glibc 线**（Wine 上游 tag 直编）：GitHub Actions → Build Wine
 
 | 输入 | 说明 |
 |---|---|
@@ -31,6 +35,11 @@ GitHub Actions → Build Wine，手动触发：
 | profile | core：仅路径修正；enhanced：路径修正 + 增强补丁集 |
 | publish | 构建成功后发布 Release |
 | prerelease | 预发布标记（自动构建、未经真机验证时使用） |
+
+**bionic 线**（GameNative/proton-wine 基底）：GitHub Actions → Build Proton
+- 目标 Android bionic：x86_64 / arm64ec，SDK 28，16KB 页对齐
+- 依赖 Termux 前缀库、NDK r27d、llvm-mingw 20250920、用户态 ntsync
+- 同时产出 GameNative 用 zstd `.wcp` 与 CMOD/Ludashi 用 `.wcp.xz`
 
 ## 发布策略
 
@@ -43,11 +52,14 @@ GitHub Actions → Build Wine，手动触发：
 scripts/ 下各脚本可独立运行，参数见脚本头注释：
 
 ```
-build.sh          编译（源码目录 + 安装前缀）
-gen-prefixpack.sh 用包内 wine 生成 prefixPack
-package-whp.sh    打 WHIP 包
-package-wcp.sh    打 WCP 包
-release-notes.sh  生成 Release 正文
+build.sh             glibc 线编译（源码目录 + 安装前缀）
+gen-prefixpack.sh    用包内 wine 生成 prefixPack
+package-whp.sh       打 WHIP 包
+package-wcp.sh       打 WCP 包
+build-proton.sh      bionic 线编译（GameNative/proton-wine 源目录）
+package-proton.sh    bionic 线双格式打包（wcp + wcp.xz）
+release-notes.sh     glibc 线 Release 正文
+release-notes-proton.sh  bionic 线 Release 正文
 ```
 
 ## 构建原则
@@ -58,8 +70,8 @@ release-notes.sh  生成 Release 正文
 
 ## 路线图
 
-- arm64 构建线：llvm-mingw 编 PE + aarch64 unix 库，产出 arm64 容器包
-- Proton 构建线：bionic 依赖环境，NTSYNC 用户态库，产出 x86_64 / arm64ec 容器包
+- bionic Proton 线已接入，arm64ec 架构待首个构建验证
+- glibc 线 arm64 构建（llvm-mingw PE + aarch64 unix 库）
 - 上游 tag 监听，自动触发预发布构建
 
 ## 许可
