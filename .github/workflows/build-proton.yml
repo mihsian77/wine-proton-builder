@@ -51,6 +51,7 @@ jobs:
 
   build:
     needs: prepare
+    name: build (${{ matrix.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     strategy:
