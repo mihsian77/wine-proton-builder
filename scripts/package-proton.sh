@@ -44,11 +44,14 @@ cp "$PREFIX_PACK" "$STAGING/prefixPack.txz"
 
 write_profile() {
   local type="$1"
+  # 上游约定：Proton 型 versionCode=1，Wine 型=0
+  local code=1
+  [ "$type" = "Wine" ] && code=0
   cat > "$STAGING/profile.json" <<EOF
 {
   "type": "${type}",
   "versionName": "${VERSION}-${ARCH}",
-  "versionCode": 1,
+  "versionCode": ${code},
   "description": "Proton ${VERSION} ${ARCH} bionic - Valve wine + ntsync userspace + fsync + Android fixes, SDK 28, 16KB pages",
   "files": [],
   "wine": {
