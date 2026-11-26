@@ -41,6 +41,10 @@
 - 依赖 Termux 前缀库、NDK r27d、llvm-mingw 20250920、用户态 ntsync
 - 同时产出 GameNative 用 zstd `.wcp` 与 CMOD/Ludashi 用 `.wcp.xz`
 
+## 在线清单
+
+`contents.json` 提供全部容器的在线拉取地址（schema 与 WinlatorWCPHub / winlator-nightly-wcp 一致）。注意：WinlatorCN 11.2 不解析远程清单，wine 包仅支持本地导入；CMOD 系 app 才消费此清单。
+
 ## 发布策略
 
 - tag `wine-<ver>`：已真机验证的稳定版，Latest 置顶
