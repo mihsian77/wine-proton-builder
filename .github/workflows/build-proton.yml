@@ -1,0 +1,250 @@
+name: Build Proton (bionic)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'GameNative/proton-wine 分支'
+        required: true
+        default: 'proton_11.0-2'
+      version:
+        description: '产品版本号（用于资产命名）'
+        required: true
+        default: '11.0-2'
+      archs:
+        description: '构建架构'
+        required: true
+        default: 'x86_64,arm64ec'
+        type: choice
+        options: ['x86_64', 'arm64ec', 'x86_64,arm64ec']
+      publish:
+        description: '构建成功后发布 Release'
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: '标记为预发布'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        env:
+          ARCHS: ${{ inputs.archs }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          a = [x.strip() for x in os.environ["ARCHS"].split(",") if x.strip()]
+          m = [{"arch": "x86_64", "build_arch": "x86_64", "name": "x86_64"} if x == "x86_64"
+               else {"arch": "aarch64", "build_arch": "aarch64", "name": "arm64ec"} for x in a]
+          print("matrix=" + json.dumps({"include": m}))
+          PY
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Checkout proton-wine source
+        uses: actions/checkout@v4
+        with:
+          repository: GameNative/proton-wine
+          ref: ${{ inputs.ref }}
+          path: proton
+          fetch-depth: 1
+
+      - name: Record source commit
+        run: |
+          echo "SRC_COMMIT=$(git -C proton rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "SRC_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
+      - name: Install host dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y build-essential git wget curl unzip flex bison gettext \
+            autoconf automake libtool pkg-config ccache zstd mingw-w64 \
+            gcc-multilib g++-multilib libfreetype6-dev libfreetype6-dev:i386 \
+            libpng-dev libpng-dev:i386 zlib1g-dev zlib1g-dev:i386
+
+      - name: Download Termux filesystem (${{ matrix.name }})
+        run: |
+          mkdir -p "$HOME/termuxfs/${{ matrix.arch }}"
+          cd "$HOME/termuxfs/${{ matrix.arch }}"
+          wget -q https://github.com/GameNative/termux-on-gha/releases/download/build-20260218/termuxfs-${{ matrix.arch }}.tar
+          tar -xf termuxfs-${{ matrix.arch }}.tar
+          test -d "$HOME/termuxfs/${{ matrix.arch }}/data/data/com.termux/files/usr"
+
+      - name: Cache Android NDK
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: ~/Android/Sdk/ndk/27.3.13750724
+          key: android-ndk-r27d
+
+      - name: Set up Android NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/Android/Sdk/ndk"
+          cd "$HOME/Android/Sdk/ndk"
+          wget -q https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+          unzip -q android-ndk-r27d-linux.zip
+          mv android-ndk-r27d 27.3.13750724
+
+      - name: Cache llvm-mingw toolchain
+        id: cache-llvm-mingw
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchains/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64
+          key: bylaws-llvm-mingw-20250920
+
+      - name: Set up llvm-mingw toolchain
+        if: steps.cache-llvm-mingw.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/toolchains"
+          cd "$HOME/toolchains"
+          wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
+          tar -xf llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
+
+      - name: Checkout ntsync-android
+        uses: actions/checkout@v4
+        with:
+          repository: GameNative/ntsync-android
+          ref: v0.2.0
+          path: ntsync-android
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, x86_64-linux-android
+
+      - name: Cache ccache (${{ matrix.name }})
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ inputs.version }}-${{ matrix.name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ inputs.version }}-${{ matrix.name }}-
+
+      - name: Cache wine-tools
+        id: cache-wine-tools
+        uses: actions/cache@v4
+        with:
+          path: proton/wine-tools
+          key: wine-tools-${{ inputs.ref }}-${{ hashFiles('proton/build-scripts/build-step0.sh') }}
+
+      - name: Build Proton (${{ matrix.name }})
+        env:
+          NTSYNC_ANDROID_DIR: ${{ github.workspace }}/ntsync-android
+        run: |
+          bash scripts/build-proton.sh \
+            --srcdir "${{ github.workspace }}/proton" \
+            --arch ${{ matrix.arch }}
+
+      - name: Download prefixPack (${{ matrix.name }})
+        run: |
+          if [ "${{ matrix.name }}" = "x86_64" ]; then
+            P=prefixPack-x86_64-11.txz
+          else
+            P=prefixPack-arm64ec-11.txz
+          fi
+          wget -q -O "$GITHUB_WORKSPACE/prefixPack.txz" \
+            "https://github.com/GameNative/bionic-prefix-files/raw/main/$P"
+          ls -lh "$GITHUB_WORKSPACE/prefixPack.txz"
+
+      - name: Package (${{ matrix.name }})
+        run: |
+          bash scripts/package-proton.sh \
+            --install-dir "$HOME/compiled-files-${{ matrix.arch }}" \
+            --arch ${{ matrix.name }} \
+            --version ${{ inputs.version }} \
+            --prefix-pack "$GITHUB_WORKSPACE/prefixPack.txz" \
+            --outdir "$GITHUB_WORKSPACE"
+          ls -lh "$GITHUB_WORKSPACE"/proton-*.wcp*
+          printf 'commit=%s\ndate=%s\n' "$SRC_COMMIT" "$SRC_DATE" > "$GITHUB_WORKSPACE/build-meta-${{ matrix.name }}.txt"
+
+      - name: Checksums (${{ matrix.name }})
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          sha256sum proton-${{ inputs.version }}-${{ matrix.name }}.wcp \
+                    proton-wine-${{ inputs.version }}-${{ matrix.name }}.wcp.xz \
+            > SHA256SUMS-${{ matrix.name }}.txt
+          cat SHA256SUMS-${{ matrix.name }}.txt
+
+      - name: Upload artifact (${{ matrix.name }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: proton-${{ matrix.name }}
+          path: |
+            proton-${{ inputs.version }}-${{ matrix.name }}.wcp
+            proton-wine-${{ inputs.version }}-${{ matrix.name }}.wcp.xz
+            SHA256SUMS-${{ matrix.name }}.txt
+            build-meta-${{ matrix.name }}.txt
+          retention-days: 14
+
+  release:
+    needs: [prepare, build]
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Release notes
+        env:
+          ARCHS: ${{ inputs.archs }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          CD=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          SRC_COMMIT=$(grep -h '^commit=' dist/*/build-meta-*.txt 2>/dev/null | head -1 | cut -d= -f2)
+          SRC_COMMIT="${SRC_COMMIT:-unknown}"
+          bash scripts/release-notes-proton.sh "$VERSION" "$SRC_COMMIT" "$CD" "$ARCHS" > notes.md
+          cat notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist
+          sha256sum *.wcp *.wcp.xz > SHA256SUMS.txt
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            TAG="proton-${{ inputs.version }}-auto-$(date -u +%Y%m%d)"
+            FLAG="--prerelease"
+          else
+            TAG="proton-${{ inputs.version }}-$(date -u +%Y%m%d)"
+            FLAG=""
+          fi
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber *.wcp *.wcp.xz SHA256SUMS.txt
+          else
+            gh release create "$TAG" $FLAG -R "$GITHUB_REPOSITORY" \
+              --title "Proton ${{ inputs.version }} (bionic)" \
+              --notes-file ../notes.md \
+              *.wcp *.wcp.xz SHA256SUMS.txt
+          fi
